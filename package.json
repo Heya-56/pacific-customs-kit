@@ -1,0 +1,37 @@
+{
+  "name": "pacific-customs-kit",
+  "version": "0.1.0",
+  "description": "Open-source customs toolkit for Pacific Island trade: country profiles (Fiji first), trade-document schemas, deterministic import-charge math and discrepancy checks.",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "keywords": [
+    "customs",
+    "pacific",
+    "fiji",
+    "vat",
+    "landed-cost",
+    "asycuda",
+    "trade",
+    "import",
+    "export",
+    "zod"
+  ],
+  "author": "Heianui Tapare — Hinova Digital",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Heya-56/pacific-customs-kit"
+  },
+  "dependencies": {
+    "zod": "^4.6.5"
+  }
+}
