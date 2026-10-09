@@ -44,7 +44,7 @@ export function checkInvoice(raw, { requireBuyerTin = true } = {}) {
   if (Math.abs(total - linesSum) > 1 && Math.abs(total - (linesSum + extras)) > 1) {
     issues.push(issue('invoice_total_mismatch', 'error', 'total', `Lines add up to ${fromCents(linesSum)}${extras ? ` (${fromCents(linesSum + extras)} with freight and insurance)` : ''}, but the invoice total is ${inv.total}.`, { expected: fromCents(linesSum + extras), actual: inv.total }));
   }
-  if (requireBuyerTin && !inv.buyer.tin) issues.push(issue('buyer_tin_missing', 'warning', 'buyer.tin', 'The importer TIN is missing; it is required on a Fiji customs entry.'));
+  if (requireBuyerTin && !inv.buyer.tin) issues.push(issue('buyer_tin_missing', 'warning', 'buyer.tin', 'The importer tax ID is missing (TIN in Fiji, numéro TAHITI in French Polynesia); customs entries need it.'));
   if (inv.incoterm && ['CIF', 'CIP'].includes(inv.incoterm) && inv.freight == null) {
     issues.push(issue('freight_missing', 'warning', 'freight', `Incoterm ${inv.incoterm} includes freight, but no freight amount is shown: the CIF value cannot be split.`));
   }
@@ -81,15 +81,19 @@ export function crossCheck(invoiceRaw, blRaw, { weightTolerancePct = 0.05 } = {}
  */
 export function compareCharges(declared, computed, tolerance = DEFAULT_TOLERANCE) {
   const issues = [];
-  const byCode = { fiscalDuty: 'fiscal_duty', importExcise: 'import_excise', vat: 'vat' };
-  for (const [key, code] of Object.entries(byCode)) {
-    if (declared[key] == null) continue;
+  // Keys are charge codes (fiscal_duty, customs_duty, tea, vat...); camelCase aliases are accepted.
+  const alias = { fiscalDuty: 'fiscal_duty', importExcise: 'import_excise', customsDuty: 'customs_duty' };
+  for (const [key, value] of Object.entries(declared ?? {})) {
+    if (value == null) continue;
+    const code = alias[key] ?? key;
     const line = computed.lines.find((l) => l.code === code);
-    const exp = toCents(line.amount); const act = toCents(declared[key]);
+    if (!line) continue;
+    const exp = toCents(line.amount); const act = toCents(value);
     if (Math.abs(exp - act) > allowed(exp, tolerance)) {
+      const how = line.rate != null ? ` (${(line.rate * 100).toFixed(line.rate * 1000 % 10 ? 2 : 1)}% of ${line.base})` : '';
       issues.push(issue(`${code}_discrepancy`, 'error', key,
-        `${line.name}: the document says ${declared[key]} ${computed.currency}, the calculation gives ${line.amount} ${computed.currency} (${(line.rate * 100).toFixed(1)}% of ${line.base}).`,
-        { expected: line.amount, actual: declared[key], difference: fromCents(act - exp) }));
+        `${line.name}: the document says ${value} ${computed.currency}, the calculation gives ${line.amount} ${computed.currency}${how}.`,
+        { expected: line.amount, actual: value, difference: fromCents(act - exp) }));
     }
   }
   return { ok: issues.length === 0, issues, tolerance };

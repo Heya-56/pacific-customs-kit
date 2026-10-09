@@ -1,4 +1,5 @@
 // Deterministic import-charge calculation. No AI here: an LLM may read documents, but never computes taxes.
+// Each country profile lists its charges in order; this engine applies them in integer cents.
 import { toCents, fromCents, applyRate } from './money.js';
 import { getProfile } from './profiles/index.js';
 
@@ -18,44 +19,71 @@ export function cifValue({ goods, freight = 0, insurance = 0, fxRate }) {
 
 /**
  * Import charges for one country profile.
- * Fiji (FRCS): VFD = CIF; fiscal duty = VFD × rate; import excise = VFD × rate;
- * VFV = VFD + fiscal duty + excise; VAT = VFV × VAT rate.
  * @param {object} i
- * @param {string} i.country           profile code, e.g. 'FJ'
- * @param {number} i.valueForDuty      CIF value in the profile currency
- * @param {number} [i.fiscalDutyRate]  overrides the category default
- * @param {number} [i.importExciseRate]
- * @param {string} [i.category]        packaging | food_raw | cosmetic_inputs | craft_materials | general
+ * @param {string} [i.country='FJ']     profile code: FJ, PF
+ * @param {number} i.valueForDuty       CIF value in the profile currency
+ * @param {string} [i.category]         packaging | food_raw | cosmetic_inputs | craft_materials | general
+ * @param {number} [i.dutyRate]         exact tariff-line duty rate (aliases: fiscalDutyRate for Fiji, customsDutyRate for PF)
+ * @param {number} [i.exciseRate]       exact excise rate (alias: importExciseRate)
+ * @param {number} [i.weightKg]         for per-weight charges (e.g. PF statistical tax)
+ * @param {number} [i.lineCount=1]      number of declaration lines, for per-line charges (e.g. PF PID)
+ * @param {Array<{code:string,name:string,rate:number}>} [i.extraRates]  product-specific ad valorem taxes (e.g. PF TDL), charged on CIF before VAT
  */
-export function computeImportCharges({ country = 'FJ', valueForDuty, fiscalDutyRate, importExciseRate, category = 'general' }) {
+export function computeImportCharges(i) {
+  const { country = 'FJ', valueForDuty, category = 'general', weightKg, lineCount = 1, extraRates = [] } = i;
   const p = getProfile(country);
   const defaults = p.duty.categories[category] ?? p.duty.categories.general;
-  const dutyRate = fiscalDutyRate ?? defaults.fiscalDuty;
-  const exciseRate = importExciseRate ?? defaults.importExcise;
-  const dutySrc = fiscalDutyRate == null ? (p.duty.verified ? 'profile' : 'illustrative-default') : 'caller';
-  const exciseSrc = importExciseRate == null ? (p.duty.verified ? 'profile' : 'illustrative-default') : 'caller';
+  const given = { duty: i.dutyRate ?? i.fiscalDutyRate ?? i.customsDutyRate, excise: i.exciseRate ?? i.importExciseRate };
+  const round = (cents) => (p.currencyDecimals === 0 ? Math.round(cents / 100) * 100 : cents);
 
-  const vfd = toCents(valueForDuty);
+  const vfd = round(toCents(valueForDuty));
   if (vfd < 0) throw new RangeError('valueForDuty must be >= 0');
-  const fiscalDuty = applyRate(vfd, dutyRate);
-  const importExcise = applyRate(vfd, exciseRate);
-  const valueForVat = vfd + fiscalDuty + importExcise;
-  const vat = applyRate(valueForVat, p.vat.rate);
-  const total = fiscalDuty + importExcise + vat;
 
+  const notes = [];
+  const lines = [];
+  let illustrative = false;
+  const push = (c, rate, base, amount, rateSource, extra = {}) =>
+    lines.push({ code: c.code, name: c.name, rate, base: fromCents(base), amount: fromCents(amount), rateSource, ...extra });
+
+  const chargeList = [...p.charges];
+  // Product-specific ad valorem taxes go just before VAT.
+  const vatAt = chargeList.findIndex((c) => c.kind === 'vat');
+  chargeList.splice(vatAt, 0, ...extraRates.map((x) => ({ code: x.code, name: x.name, kind: 'ad_valorem', rate: x.rate, caller: true })));
+
+  let running = 0;
+  for (const c of chargeList) {
+    if (c.kind === 'tariff') {
+      const rate = given[c.tariffKey] ?? defaults[c.tariffKey] ?? 0;
+      const src = given[c.tariffKey] != null ? 'caller' : (p.duty.verified ? 'profile' : 'illustrative-default');
+      if (src === 'illustrative-default') illustrative = true;
+      const amount = round(applyRate(vfd, rate)); running += amount; push(c, rate, vfd, amount, src);
+    } else if (c.kind === 'ad_valorem') {
+      const amount = round(applyRate(vfd, c.rate)); running += amount;
+      push(c, c.rate, vfd, amount, c.caller ? 'caller' : (c.verified ? 'official' : 'illustrative-default'));
+    } else if (c.kind === 'per_100kg') {
+      if (!(weightKg > 0)) { notes.push(`${c.name} not computed: weight unknown.`); continue; }
+      const amount = round(Math.round(toCents(c.amount) * (weightKg / 100))); running += amount;
+      push(c, null, 0, amount, c.verified ? 'official' : 'illustrative-default', { unitAmount: c.amount, per: '100 kg', quantity: weightKg });
+    } else if (c.kind === 'per_line') {
+      const amount = round(toCents(c.amount) * Math.max(1, Math.floor(lineCount))); running += amount;
+      push(c, null, 0, amount, c.verified ? 'official' : 'illustrative-default', { unitAmount: c.amount, per: 'line', quantity: lineCount });
+    } else if (c.kind === 'vat') {
+      const base = vfd + running;
+      const amount = round(applyRate(base, p.vat.rate)); running += amount;
+      push({ code: 'vat', name: c.name }, p.vat.rate, base, amount, p.vat.verified ? 'official' : 'illustrative-default');
+    }
+  }
+  const vatLine = lines.find((l) => l.code === 'vat');
   return {
     country: p.code,
     currency: p.currency,
     valueForDuty: fromCents(vfd),
-    lines: [
-      { code: 'fiscal_duty', name: 'Fiscal duty', rate: dutyRate, base: fromCents(vfd), amount: fromCents(fiscalDuty), rateSource: dutySrc },
-      { code: 'import_excise', name: 'Import excise', rate: exciseRate, base: fromCents(vfd), amount: fromCents(importExcise), rateSource: exciseSrc },
-      { code: 'vat', name: 'VAT', rate: p.vat.rate, base: fromCents(valueForVat), amount: fromCents(vat), rateSource: p.vat.verified ? 'official' : 'illustrative-default' },
-    ],
-    valueForVat: fromCents(valueForVat),
-    totalCharges: fromCents(total),
-    landedValue: fromCents(vfd + total),
+    lines,
+    valueForVat: vatLine?.base ?? null,
+    totalCharges: fromCents(running),
+    landedValue: fromCents(vfd + running),
     rateSources: { vat: p.vat.source, valuation: p.valuation.source },
-    disclaimer: [dutySrc, exciseSrc].includes('illustrative-default') ? p.duty.note : null,
+    notes,
+    disclaimer: illustrative ? p.duty.note : null,
   };
 }

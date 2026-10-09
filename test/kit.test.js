@@ -38,7 +38,7 @@ test('Fiji profile: official VAT 12.5% since 1 Aug 2025, with source', () => {
   assert.equal(fj.vat.verified, true);
   assert.match(fj.vat.source, /^https:\/\/frcs\.org\.fj\//);
   assert.equal(fj.duty.verified, false, 'tariff rates stay illustrative until confirmed');
-  assert.deepEqual(listProfiles().map((p) => p.code), ['FJ']);
+  assert.deepEqual(listProfiles().map((p) => p.code), ['FJ', 'PF']);
   assert.throws(() => getProfile('ZZ'), /Unknown country profile/);
 });
 
@@ -140,4 +140,38 @@ test('declared VAT at the old 15% rate raises an alert; rounding noise does not'
   assert.equal(old.issues[0].code, 'vat_discrepancy');
   assert.equal(old.issues[0].difference, 282.8);
   assert.equal(compareCharges({ fiscalDuty: 1475.49, vat: 1414.1 }, computed).ok, true);
+});
+
+test('French Polynesia: every tax on CIF, VAT 16% on CIF + duty + other taxes, rounded to the franc', () => {
+  // CIF 100,000 XPF, duty 10%: DD 10,000 · TEA 2% 2,000 · toll 1.25% 1,250 · TS 50/100 kg × 250 kg = 125 · PID 85
+  // VAT base 113,460 × 16% = 18,153.6 → 18,154
+  const r = computeImportCharges({ country: 'PF', valueForDuty: 100000, customsDutyRate: 0.10, weightKg: 250, lineCount: 1 });
+  assert.equal(r.currency, 'XPF');
+  assert.deepEqual(r.lines.map((l) => [l.code, l.amount]), [
+    ['customs_duty', 10000], ['tea', 2000], ['toll', 1250], ['statistical_tax', 125], ['pid', 85], ['vat', 18154],
+  ]);
+  assert.equal(r.valueForVat, 113460);
+  assert.equal(r.totalCharges, 31614);
+  assert.equal(r.landedValue, 131614);
+  assert.equal(r.lines.find((l) => l.code === 'tea').rateSource, 'official');
+  assert.equal(r.disclaimer, null, 'duty rate supplied by the caller');
+});
+
+test('French Polynesia: XPF has no cents, missing weight is reported, product taxes go before VAT', () => {
+  const r = computeImportCharges({ country: 'PF', valueForDuty: 12345, category: 'general', extraRates: [{ code: 'tdl', name: 'Local development tax (TDL)', rate: 0.05 }] });
+  assert.ok(r.lines.every((l) => Number.isInteger(l.amount)), 'whole francs');
+  assert.equal(r.lines.find((l) => l.code === 'toll').amount, 154); // 154.31 → 154
+  assert.equal(r.lines.find((l) => l.code === 'statistical_tax'), undefined);
+  assert.match(r.notes[0], /weight unknown/);
+  const codes = r.lines.map((l) => l.code);
+  assert.ok(codes.indexOf('tdl') < codes.indexOf('vat'), 'TDL is in the VAT base');
+  assert.ok(r.disclaimer, 'default duty rate is illustrative');
+});
+
+test('French Polynesia: VAT computed on CIF only is flagged', () => {
+  const computed = computeImportCharges({ country: 'PF', valueForDuty: 100000, customsDutyRate: 0.10, weightKg: 250 });
+  const r = compareCharges({ customsDuty: 10000, vat: 16000 }, computed);
+  assert.equal(r.ok, false);
+  assert.equal(r.issues[0].code, 'vat_discrepancy');
+  assert.equal(r.issues[0].expected, 18154);
 });

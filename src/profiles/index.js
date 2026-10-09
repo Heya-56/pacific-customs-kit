@@ -1,6 +1,7 @@
 import { FJ } from './fj.js';
+import { PF } from './pf.js';
 
-export const profiles = { FJ };
+export const profiles = { FJ, PF };
 
 export function getProfile(code) {
   const p = profiles[String(code ?? '').toUpperCase()];

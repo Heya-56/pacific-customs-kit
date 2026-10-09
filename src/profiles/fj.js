@@ -8,6 +8,7 @@ export const FJ = {
   code: 'FJ',
   name: 'Fiji',
   currency: 'FJD',
+  currencyDecimals: 2,
   customsAuthority: 'Fiji Revenue and Customs Service (FRCS)',
   customsSystem: 'ASYCUDA World',
   lodgement: {
@@ -51,13 +52,21 @@ export const FJ = {
     verified: false,
     note: 'Illustrative defaults — confirm the tariff line and rate in the current Fiji Customs Tariff with a licensed customs agent.',
     categories: {
-      packaging:       { fiscalDuty: 0.15, importExcise: 0 },
-      food_raw:        { fiscalDuty: 0.05, importExcise: 0 },
-      cosmetic_inputs: { fiscalDuty: 0.15, importExcise: 0 },
-      craft_materials: { fiscalDuty: 0.05, importExcise: 0 },
-      general:         { fiscalDuty: 0.15, importExcise: 0 },
+      packaging:       { duty: 0.15, excise: 0 },
+      food_raw:        { duty: 0.05, excise: 0 },
+      cosmetic_inputs: { duty: 0.15, excise: 0 },
+      craft_materials: { duty: 0.05, excise: 0 },
+      general:         { duty: 0.15, excise: 0 },
     },
   },
+
+  // Charges in the order FRCS computes them. "tariff" rates come from the tariff line (duty.categories or the caller);
+  // VAT is charged on the value for duty plus every charge before it.
+  charges: [
+    { code: 'fiscal_duty', name: 'Fiscal duty', kind: 'tariff', tariffKey: 'duty' },
+    { code: 'import_excise', name: 'Import excise', kind: 'tariff', tariffKey: 'excise' },
+    { code: 'vat', name: 'VAT', kind: 'vat' },
+  ],
 
   // Customs entry points. UN/LOCODEs are standard; ASYCUDA office codes must be confirmed with FRCS.
   offices: [

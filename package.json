@@ -1,7 +1,7 @@
 {
   "name": "pacific-customs-kit",
-  "version": "0.1.0",
-  "description": "Open-source customs toolkit for Pacific Island trade: country profiles (Fiji first), trade-document schemas, deterministic import-charge math and discrepancy checks.",
+  "version": "0.2.0",
+  "description": "Open-source customs toolkit for Pacific Island trade: country profiles (Fiji, French Polynesia), trade-document schemas, deterministic import-charge math and discrepancy checks.",
   "type": "module",
   "main": "src/index.js",
   "exports": {
