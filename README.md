@@ -62,7 +62,7 @@ Each issue looks like `{ code, severity, field, message, expected, actual }`. `e
 
 ## French Polynesia profile
 
-Sources: the official customs tariff (*Tarif des douanes*, section "Taux de taxation et assiettes", [PDF on service-public.pf](https://www.service-public.pf/douane/wp-content/uploads/sites/18/2024/12/Tarif-des-douanes-2025-01.pdf)) and an extract of the tariff dated **1 January 2026** for the lines below.
+Sources: the official customs tariff (*Tarif des douanes*, section "Taux de taxation et assiettes", [PDF on service-public.pf](https://www.service-public.pf/douane/wp-content/uploads/sites/18/2024/12/Tarif-des-douanes-2025-01.pdf)) and the tariff extract dated **1 January 2026** (TAPA) published on the customs website, for the lines below.
 
 | Item | Value | Status |
 |---|---|---|

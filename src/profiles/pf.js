@@ -8,7 +8,7 @@ const FAQ = 'https://www.service-public.pf/douane/faq/';
 const TAX_LIST = 'https://www.service-public.pf/douane/professionnels/la-fiscalite-douaniere/les-droits-et-taxes-applicables/';
 const SIMULATOR = 'https://simulateur-douane-polynesie.com';
 const TARIFF_PDF = 'https://www.service-public.pf/douane/wp-content/uploads/sites/18/2024/12/Tarif-des-douanes-2025-01.pdf';
-const TARIFF_2026 = 'Tarif des douanes de Polynésie française, extract dated 1 January 2026 (TAPA 2026-03)';
+const TARIFF_2026 = 'Tarif des douanes de Polynésie française (TAPA), extract dated 1 January 2026, published by the Direction régionale des douanes de Polynésie française on its website (service-public.pf/douane)';
 
 export const PF = {
   code: 'PF',
