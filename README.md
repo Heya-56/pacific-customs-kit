@@ -34,9 +34,9 @@ const vfd = cifValue({ goods: 4000, freight: 350, insurance: 21.85, fxRate: 2.25
 const charges = computeImportCharges({ country: 'FJ', valueForDuty: vfd, dutyRate: 0.15, exciseRate: 0 });
 // fiscal duty 1475.50, VAT 1414.02 (12.5% of VFD + duty + excise)
 
-// French Polynesia: amounts in whole CFP francs, per-weight and per-line taxes, product taxes before VAT
-computeImportCharges({ country: 'PF', valueForDuty: 100000, dutyRate: 0.10, weightKg: 250, lineCount: 1,
-  extraRates: [{ code: 'tdl', name: 'TDL', rate: 0.05 }] });
+// French Polynesia, official tariff line 7010.90.00 (glass bottles), by sea, 120 kg net:
+computeImportCharges({ country: 'PF', valueForDuty: 100000, hsCode: '7010.90', weightKg: 120 });
+// DD 13% 13,000 · TEAP 2% 2,000 · TEEI 1% 1,000 · port toll 1,250 · TS 100 · PID 85 · VAT 16% 18,790 (whole francs)
 
 // 3. Check a document (for example the output of an OCR / LLM extraction)
 const { ok, issues } = checkInvoice(invoiceJson);
@@ -62,22 +62,27 @@ Each issue looks like `{ code, severity, field, message, expected, actual }`. `e
 
 ## French Polynesia profile
 
+Sources: the official customs tariff (*Tarif des douanes*, section "Taux de taxation et assiettes", [PDF on service-public.pf](https://www.service-public.pf/douane/wp-content/uploads/sites/18/2024/12/Tarif-des-douanes-2025-01.pdf)) and an extract of the tariff dated **1 January 2026** for the lines below.
+
 | Item | Value | Status |
 |---|---|---|
-| VAT (TVA) | 16% standard rate, on CIF + customs duty + other taxes | verified ([customs FAQ](https://www.service-public.pf/douane/faq/), updated 3 Feb 2025) |
-| Valuation | CIF (CAF); every duty is a share of CIF except VAT | verified (same source) |
-| TEA (environment and agriculture tax) | 2% of CIF | verified (same source) |
-| Toll (péage) | 1.25% of CIF in most cases | verified (same source) |
-| Statistical tax (TS) | 50 XPF per 100 kg | verified (same source) |
-| Customs IT participation (PID) | 85 XPF per declaration line | verified (same source) |
-| Customs duty (DD) | depends on the tariff line and origin | **not verified**: illustrative defaults; use the [official simulator](https://simulateur-douane-polynesie.com) |
-| TDL, TCP, alcohol, tobacco, fuel taxes | product-specific | pass them as `extraRates` |
+| Valuation | CIF (CAF) | verified |
+| VAT (TVA) | 0%, 5% or 16% by tariff line, on **CIF + all duties and taxes except TDL + landing costs** | verified |
+| TDL (local development tax) | 2% to 82% by line, on **CIF + customs duty**, not in the VAT base | verified (rule); per line in `tariffLines` |
+| TEAP (environment, agriculture, fisheries) | 2% or 10% of CIF by line; some lines have none | verified |
+| TEEI (imported electrical equipment) | 1% of CIF on some lines | verified |
+| Port toll (PEAGE, Papeete) | 1.25% of CIF, sea freight | verified |
+| SETIL (Faa'a freight station) | 4.972 XPF per net kg, minimum 45 XPF, air freight | verified |
+| Statistical tax (TS) | 50 XPF per started 100 kg or per started tonne, by line | verified |
+| PID (customs IT participation) | 85 XPF per declaration item | verified |
+| Customs duty (DD) | standard or reduced rate by line and origin | verified for the lines below; reduced-rate eligibility (origin) to confirm per case |
 | Currency | XPF, no subunit (amounts rounded to the franc); pegged to the euro | |
-| Customs system | SOFIX / FENIX | name from official pages |
+
+Official tariff lines included (1 Jan 2026): vanilla 0905.10.00, coconut oil 1513.11.00 and 1513.19.10, monoi-type preparations 3304.99.10, Monoi de Tahiti packaged 3304.99.29 (TDL 37%), paper bags 4819.30.00 and 4819.40.00, glass bottles 7010.90.00. Other lines fall back to illustrative category defaults and are flagged as such.
 
 ## What this kit does not do
 
-- It does **not** lodge declarations. Neither Fiji (ASYCUDA World) nor French Polynesia (SOFIX / FENIX) offers a public API; a registered importer or customs agent must review and lodge the entry.
+- It does **not** lodge declarations. Neither Fiji (ASYCUDA World) nor French Polynesia offers a public API for this; a registered importer or customs agent must review and lodge the entry.
 - It is **not** legal or tax advice. Tariff rates depend on the exact HS line, origin and concession codes. Rates not marked `verified` are placeholders.
 
 ## Contributing

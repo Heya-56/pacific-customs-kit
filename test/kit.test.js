@@ -142,30 +142,73 @@ test('declared VAT at the old 15% rate raises an alert; rounding noise does not'
   assert.equal(compareCharges({ fiscalDuty: 1475.49, vat: 1414.1 }, computed).ok, true);
 });
 
-test('French Polynesia: every tax on CIF, VAT 16% on CIF + duty + other taxes, rounded to the franc', () => {
-  // CIF 100,000 XPF, duty 10%: DD 10,000 · TEA 2% 2,000 · toll 1.25% 1,250 · TS 50/100 kg × 250 kg = 125 · PID 85
-  // VAT base 113,460 × 16% = 18,153.6 → 18,154
+test('French Polynesia (official tariff rules): VAT on CIF + all taxes except TDL, started weight units count in full', () => {
+  // CIF 100,000 XPF, duty 10% (given), sea, 250 kg net: DD 10,000 · TEAP 2% 2,000 · port toll 1.25% 1,250
+  // TS 50 per started 100 kg → 3 × 50 = 150 · PID 85 · VAT base 113,485 × 16% = 18,157.6 → 18,158
   const r = computeImportCharges({ country: 'PF', valueForDuty: 100000, customsDutyRate: 0.10, weightKg: 250, lineCount: 1 });
   assert.equal(r.currency, 'XPF');
   assert.deepEqual(r.lines.map((l) => [l.code, l.amount]), [
-    ['customs_duty', 10000], ['tea', 2000], ['toll', 1250], ['statistical_tax', 125], ['pid', 85], ['vat', 18154],
+    ['customs_duty', 10000], ['teap', 2000], ['toll', 1250], ['statistical_tax', 150], ['pid', 85], ['vat', 18158],
   ]);
-  assert.equal(r.valueForVat, 113460);
-  assert.equal(r.totalCharges, 31614);
-  assert.equal(r.landedValue, 131614);
-  assert.equal(r.lines.find((l) => l.code === 'tea').rateSource, 'official');
+  assert.equal(r.valueForVat, 113485);
+  assert.equal(r.totalCharges, 31643);
+  assert.equal(r.lines.find((l) => l.code === 'teap').rateSource, 'official');
   assert.equal(r.disclaimer, null, 'duty rate supplied by the caller');
 });
 
-test('French Polynesia: XPF has no cents, missing weight is reported, product taxes go before VAT', () => {
-  const r = computeImportCharges({ country: 'PF', valueForDuty: 12345, category: 'general', extraRates: [{ code: 'tdl', name: 'Local development tax (TDL)', rate: 0.05 }] });
+test('French Polynesia by air: no port toll, Faa\'a freight-station fee (SETIL) instead, with its minimum', () => {
+  const r = computeImportCharges({ country: 'PF', valueForDuty: 100000, customsDutyRate: 0.10, weightKg: 250, mode: 'air' });
+  const codes = r.lines.map((l) => l.code);
+  assert.ok(!codes.includes('toll'));
+  assert.equal(r.lines.find((l) => l.code === 'setil').amount, 1243); // 4.972 × 250 = 1,243
+  assert.equal(r.lines.find((l) => l.code === 'vat').amount, 18156); // 113,478 × 16% = 18,156.48
+  const small = computeImportCharges({ country: 'PF', valueForDuty: 1000, customsDutyRate: 0, weightKg: 2, mode: 'air' });
+  assert.equal(small.lines.find((l) => l.code === 'setil').amount, 45, 'minimum 45 XPF');
+});
+
+test('French Polynesia official tariff lines (1 Jan 2026): glass bottles, reduced duty, kraft bags, vanilla, coconut oil', () => {
+  // 7010.90.00: DD 13% (reduced 6%), TEAP 2%, TEEI 1%, VAT 16%, TS per 100 kg
+  const g = computeImportCharges({ country: 'PF', valueForDuty: 100000, hsCode: '7010.90', weightKg: 120 });
+  assert.equal(g.tariffLine.code, '70109000');
+  assert.deepEqual(g.lines.map((l) => [l.code, l.amount]), [
+    ['customs_duty', 13000], ['teap', 2000], ['teei', 1000], ['toll', 1250], ['statistical_tax', 100], ['pid', 85], ['vat', 18790],
+  ]);
+  assert.ok(g.lines.every((l) => ['official-tariff', 'official'].includes(l.rateSource)));
+  assert.equal(g.disclaimer, null);
+  const gr = computeImportCharges({ country: 'PF', valueForDuty: 100000, hsCode: '70109000', weightKg: 120, reducedDuty: true });
+  assert.equal(gr.lines[0].amount, 6000);
+  assert.equal(gr.lines.find((l) => l.code === 'vat').amount, 17670);
+  // 4819.30.00 kraft bags: DD 6%, no TEAP
+  const k = computeImportCharges({ country: 'PF', valueForDuty: 100000, hsCode: '481930', weightKg: 300 });
+  assert.equal(k.lines.find((l) => l.code === 'teap'), undefined);
+  assert.equal(k.lines[0].amount, 6000);
+  // 0905.10.00 vanilla: VAT 5%
+  const v = computeImportCharges({ country: 'PF', valueForDuty: 100000, hsCode: '09051000', weightKg: 10 });
+  assert.equal(v.lines.find((l) => l.code === 'vat').rate, 0.05);
+  // 1513.11.00 crude coconut oil: statistical tax per metric tonne
+  const c = computeImportCharges({ country: 'PF', valueForDuty: 100000, hsCode: '15131100', weightKg: 600 });
+  assert.equal(c.lines.find((l) => l.code === 'statistical_tax').amount, 50);
+});
+
+test('French Polynesia: TDL (Monoi de Tahiti, 37%) is charged on CIF + duty and stays out of the VAT base', () => {
+  // 3304.99.29: DD 15% 15,000 · TDL 37% × 115,000 = 42,550 · TEAP 2,000 · toll 1,250 · TS 50 · PID 85
+  // VAT base 100,000 + 15,000 + 2,000 + 1,250 + 50 + 85 = 118,385 → 18,942 (TDL excluded)
+  const r = computeImportCharges({ country: 'PF', valueForDuty: 100000, hsCode: '33049929', weightKg: 50 });
+  assert.equal(r.lines.find((l) => l.code === 'tdl').amount, 42550);
+  assert.equal(r.valueForVat, 118385);
+  assert.equal(r.lines.find((l) => l.code === 'vat').amount, 18942);
+  assert.equal(r.totalCharges, 79877);
+});
+
+test('French Polynesia: XPF has no cents, missing weight is reported, default duty is illustrative', () => {
+  const r = computeImportCharges({ country: 'PF', valueForDuty: 12345, category: 'general' });
   assert.ok(r.lines.every((l) => Number.isInteger(l.amount)), 'whole francs');
   assert.equal(r.lines.find((l) => l.code === 'toll').amount, 154); // 154.31 → 154
   assert.equal(r.lines.find((l) => l.code === 'statistical_tax'), undefined);
   assert.match(r.notes[0], /weight unknown/);
-  const codes = r.lines.map((l) => l.code);
-  assert.ok(codes.indexOf('tdl') < codes.indexOf('vat'), 'TDL is in the VAT base');
   assert.ok(r.disclaimer, 'default duty rate is illustrative');
+  const withLanding = computeImportCharges({ country: 'PF', valueForDuty: 100000, customsDutyRate: 0.10, weightKg: 250, landingCosts: 5000 });
+  assert.equal(withLanding.valueForVat, 118485, 'landing costs are part of the VAT base');
 });
 
 test('French Polynesia: VAT computed on CIF only is flagged', () => {
@@ -173,5 +216,5 @@ test('French Polynesia: VAT computed on CIF only is flagged', () => {
   const r = compareCharges({ customsDuty: 10000, vat: 16000 }, computed);
   assert.equal(r.ok, false);
   assert.equal(r.issues[0].code, 'vat_discrepancy');
-  assert.equal(r.issues[0].expected, 18154);
+  assert.equal(r.issues[0].expected, 18158);
 });

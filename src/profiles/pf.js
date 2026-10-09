@@ -7,6 +7,8 @@
 const FAQ = 'https://www.service-public.pf/douane/faq/';
 const TAX_LIST = 'https://www.service-public.pf/douane/professionnels/la-fiscalite-douaniere/les-droits-et-taxes-applicables/';
 const SIMULATOR = 'https://simulateur-douane-polynesie.com';
+const TARIFF_PDF = 'https://www.service-public.pf/douane/wp-content/uploads/sites/18/2024/12/Tarif-des-douanes-2025-01.pdf';
+const TARIFF_2026 = 'Tarif des douanes de Polynésie française, extract dated 1 January 2026 (TAPA 2026-03)';
 
 export const PF = {
   code: 'PF',
@@ -30,12 +32,12 @@ export const PF = {
     verified: true,
   },
 
-  // Official FAQ: goods are valued CAF (coût, assurance, fret) to the point of entry; each duty is a percentage of CAF,
-  // except VAT, which is charged on CAF + customs duty + the other taxes.
+  // Official tariff ("Taux de taxation et assiettes"): ad valorem taxes are a share of the CAF value; TDL is charged on
+  // CAF + customs duty; VAT is charged on CAF + all duties and taxes EXCEPT TDL + landing costs (frais de débarquement).
   valuation: {
     basis: 'CIF (CAF)',
-    vatBase: 'CIF + customs duty + other taxes',
-    source: FAQ,
+    vatBase: 'CIF + all duties and taxes except TDL + landing costs',
+    source: TARIFF_PDF,
     verified: true,
   },
 
@@ -58,21 +60,42 @@ export const PF = {
     },
   },
 
-  // Charges in the order they are computed. Ad valorem charges are a share of CIF; VAT is charged on CIF plus
-  // every charge before it (official FAQ).
+  // Charges in the order they are computed (definitions: official tariff, section "Taux de taxation et assiettes").
+  // A tariff line (tariffLines below) can set its own duty, VAT, TEAP rate, TEEI, TDL and statistical-tax unit.
   charges: [
     { code: 'customs_duty', name: 'Customs duty (DD)', kind: 'tariff', tariffKey: 'duty' },
-    { code: 'tea', name: 'Environment and agriculture tax (TEA)', kind: 'ad_valorem', rate: 0.02, source: FAQ, verified: true },
-    { code: 'toll', name: 'Port / airport toll (péage)', kind: 'ad_valorem', rate: 0.0125, source: FAQ, verified: true, note: '1.25% of CIF "in most cases" (official FAQ).' },
-    { code: 'statistical_tax', name: 'Statistical tax (TS)', kind: 'per_100kg', amount: 50, source: FAQ, verified: true, note: '50 XPF per 100 kg; needs the weight.' },
-    { code: 'pid', name: 'Customs IT participation (PID)', kind: 'per_line', amount: 85, source: FAQ, verified: true, note: '85 XPF per article (line) of the declaration.' },
+    { code: 'tdl', name: 'Local development tax (TDL)', kind: 'line_only', lineKey: 'tdl', base: 'cif_plus_duty', inVatBase: false, source: TARIFF_PDF, verified: true, note: '2% to 82% depending on the tariff line; charged on CIF + customs duty; not part of the VAT base.' },
+    { code: 'teap', name: 'Environment, agriculture and fisheries tax (TEAP)', kind: 'ad_valorem', rate: 0.02, lineKey: 'teap', source: TARIFF_PDF, verified: true, note: '2% or 10% of CIF depending on the tariff line; some lines have none.' },
+    { code: 'teei', name: 'Imported electrical equipment tax (TEEI)', kind: 'line_only', lineKey: 'teei', base: 'cif', source: TARIFF_PDF, verified: true },
+    { code: 'toll', name: 'Papeete port toll (PEAGE)', kind: 'ad_valorem', rate: 0.0125, modes: ['sea'], source: TARIFF_PDF, verified: true },
+    { code: 'setil', name: "Faa'a freight station fee (SETIL)", kind: 'per_kg', amount: 4.972, minimum: 45, modes: ['air'], source: TARIFF_PDF, verified: true, note: '4.972 XPF per net kg, minimum 45 XPF; air freight through the Faa\'a freight station.' },
+    { code: 'statistical_tax', name: 'Statistical tax (TS)', kind: 'per_weight_unit', amount: 50, unitKg: 100, lineKey: 'tsUnitKg', source: TARIFF_PDF, verified: true, note: '50 XPF per 100 kg net (QU) or per metric tonne (TM) depending on the line; a started unit counts in full.' },
+    { code: 'pid', name: 'Customs IT participation (PID)', kind: 'per_line', amount: 85, source: TARIFF_PDF, verified: true, note: '85 XPF per declaration item.' },
     { code: 'vat', name: 'VAT (TVA)', kind: 'vat' },
   ],
-  productSpecificTaxes: 'TDL (local development tax), TCP, and taxes on alcohol, tobacco, fuel and electrical equipment apply to some tariff lines only. Pass them as extraRates when known.',
+
+  // Tariff lines copied from the official tariff (DD standard / reduced rate, VAT, other taxes). The reduced customs
+  // duty depends on origin (the tariff says "suivant origine"); which origins qualify must be confirmed per case.
+  tariffLines: {
+    source: TARIFF_2026,
+    edition: '2026-01-01',
+    verified: true,
+    lines: {
+      '09051000': { description: 'Vanilla, neither crushed nor ground', duty: 0.06, dutyReduced: 0.06, vat: 0.05, teap: 0.02, tsUnitKg: 100 },
+      '15131100': { description: 'Coconut (copra) oil, crude', duty: 0.13, dutyReduced: 0.06, vat: 0.16, teap: 0.02, tsUnitKg: 1000 },
+      '15131910': { description: 'Coconut oil, virgin', duty: 0.13, dutyReduced: 0.06, vat: 0.16, teap: 0.02, tsUnitKg: 1000 },
+      '33049910': { description: 'Monoi-type preparations', duty: 0.13, dutyReduced: 0.06, vat: 0.16, teap: 0.02, tsUnitKg: 100 },
+      '33049929': { description: 'Monoi de Tahiti (appellation of origin), packaged', duty: 0.15, dutyReduced: 0.06, vat: 0.16, teap: 0.02, tdl: 0.37, tsUnitKg: 100 },
+      '48193000': { description: 'Paper sacks and bags, base width 40 cm or more', duty: 0.06, dutyReduced: 0.04, vat: 0.16, teap: 0, tsUnitKg: 100 },
+      '48194000': { description: 'Other paper sacks and bags', duty: 0.06, dutyReduced: 0.04, vat: 0.16, teap: 0, tsUnitKg: 100 },
+      '70109000': { description: 'Glass bottles, flasks, jars and similar containers', duty: 0.13, dutyReduced: 0.06, vat: 0.16, teap: 0.02, teei: 0.01, tsUnitKg: 100 },
+    },
+  },
+  productSpecificTaxes: 'Other product-specific taxes (TCP, alcohol, tobacco, fuel...) apply to some tariff lines only. Pass them as extraRates when known.',
 
   offices: [
     { id: 'papeete-port', name: 'Papeete port', mode: 'sea', unlocode: 'PFPPT', island: 'Tahiti' },
-    { id: 'faaa-airport', name: "Tahiti Faa'a airport (freight)", mode: 'air', unlocode: null, island: 'Tahiti' },
+    { id: 'faaa-airport', name: "Tahiti Faa'a airport freight station", mode: 'air', unlocode: null, island: 'Tahiti' },
   ],
 
   lanes: {
